@@ -87,3 +87,72 @@ def disk_static():
         "partitions": partition_stats,
     }
 
+
+
+def disk_dynamic():
+    disks = psutil.disk_io_counters(perdisk=True)
+
+    result = {}
+
+    if not disks:
+        # Fallback to aggregate counters when per-disk info is unavailable
+        total = psutil.disk_io_counters()
+        if not total:
+            return {}
+        return {
+            "total": {
+                "read_bytes": total.read_bytes,
+                "write_bytes": total.write_bytes,
+                "read_time_ms": getattr(total, "read_time", 0),
+                "write_time_ms": getattr(total, "write_time", 0),
+                "busy_time_ms": getattr(total, "busy_time", 0),
+            }
+        }
+
+    seen_devices = set()
+    for part in psutil.disk_partitions(all=True):
+        if not part.device.startswith("/dev/"):
+            continue
+
+        device_name = os.path.basename(part.device)
+        if device_name in seen_devices:
+            continue
+        seen_devices.add(device_name)
+
+        stats = disks.get(device_name)
+        if not stats:
+            continue
+
+        if device_name.startswith("zram") or device_name.startswith("loop") or device_name.startswith("ram"):
+            continue
+
+        result[device_name] = {
+            "device": part.device,
+            "mountpoint": part.mountpoint,
+            "fstype": part.fstype,
+            "read_bytes": stats.read_bytes,
+            "write_bytes": stats.write_bytes,
+            "read_time_ms": getattr(stats, "read_time", 0),
+            "write_time_ms": getattr(stats, "write_time", 0),
+            "busy_time_ms": getattr(stats, "busy_time", 0),
+        }
+
+    # If no partition counters were matched, fall back to all non-virtual per-device counters
+    if not result:
+        for name, stats in disks.items():
+            if not stats:
+                continue
+            if name.startswith("zram") or name.startswith("loop") or name.startswith("ram"):
+                continue
+
+            result[name] = {
+                "read_bytes": stats.read_bytes,
+                "write_bytes": stats.write_bytes,
+                "read_time_ms": getattr(stats, "read_time", 0),
+                "write_time_ms": getattr(stats, "write_time", 0),
+                "busy_time_ms": getattr(stats, "busy_time", 0),
+            }
+
+    return result
+
+print(disk_dynamic())
